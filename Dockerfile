@@ -33,6 +33,10 @@ COPY . .
 # Set environment variable for production build
 ENV NEXT_TELEMETRY_DISABLED 1
 
+# Generate .env.local file
+RUN echo "NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL" > .env.local
+RUN echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY" >> .env.local
+
 # Build the application
 RUN pnpm build
 
