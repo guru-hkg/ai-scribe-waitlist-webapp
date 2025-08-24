@@ -14,6 +14,14 @@ export async function POST(request: NextRequest) {
       console.log("Missing email or password")
       return NextResponse.json({ error: "Email and password are required" }, { status: 400 })
     }
+    
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error("Missing Supabase environment variables")
+      return NextResponse.json({ error: "Missing Supabase environment variables" }, { status: 500 })
+    }
 
     const supabase = createClient()
     console.log("Supabase client created")
