@@ -1,0 +1,148 @@
+# Use the official Node.js 20 Alpine image as base
+FROM node:20-alpine AS base
+
+# Install dependencies only when needed
+FROM base AS deps
+# Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+# Install pnpm
+RUN npm install -g pnpm
+
+# Copy package files
+COPY package.json pnpm-lock.yaml* ./
+
+# Install dependencies
+RUN pnpm install --frozen-lockfile
+
+# Rebuild the source code only when needed
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# Set environment variables for build
+ENV NEXT_TELEMETRY_DISABLED 1
+ENV NODE_ENV production
+
+# Build the application
+RUN pnpm build
+
+# Production image, copy all the files and run next
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV production
+ENV NEXT_TELEMETRY_DISABLED 1
+
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Copy the public folder
+COPY --from=builder /app/public ./public
+
+# Set the correct permission for prerender cache
+RUN mkdir .next
+RUN chown nextjs:nodejs .next
+
+# Automatically leverage output traces to reduce image size
+# https://nextjs.org/docs/advanced-features/output-file-tracing
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT 3000
+ENV HOSTNAME "0.0.0.0"
+
+# server.js is created by next build from the standalone output
+# https://nextjs.org/docs/pages/api-reference/next-config-js/output
+CMD ["node", "server.js"]
+```
+
+You'll also need to update your `next.config.mjs` to enable standalone output for optimal Docker performance:
+
+```javascript:next.config.mjs
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  images: {
+    unoptimized: true,
+  },
+  // Enable standalone output for Docker
+  output: 'standalone',
+}
+
+export default nextConfig
+```
+
+Additionally, I recommend creating a `.dockerignore` file to optimize your Docker build:
+
+```text:.dockerignore
+<code_block_to_apply_changes_from>
+```
+
+And here's a `docker-compose.yml` file for easier development and deployment:
+
+```yaml:docker-compose.yml
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_TELEMETRY_DISABLED=1
+    # Add your Supabase environment variables here
+    # - SUPABASE_URL=your_supabase_url
+    # - SUPABASE_ANON_KEY=your_supabase_anon_key
+    restart: unless-stopped
+
+  # Optional: Add a reverse proxy like nginx
+  # nginx:
+  #   image: nginx:alpine
+  #   ports:
+  #     - "80:80"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf
+  #   depends_on:
+  #     - app
+```
+
+## Build and Run Commands
+
+To build and run your Docker container:
+
+```bash
+# Build the image
+docker build -t hikigai-waitlist .
+
+# Run the container
+docker run -p 3000:3000 hikigai-waitlist
+
+# Or use docker-compose
+docker-compose up --build
+```
+
+## Key Features of this Dockerfile:
+
+1. **Multi-stage build** - Reduces final image size by separating build and runtime dependencies
+2. **Alpine Linux** - Lightweight base image for smaller container size
+3. **Security** - Runs as non-root user (nextjs)
+4. **Optimization** - Uses Next.js standalone output for better performance
+5. **Caching** - Leverages Docker layer caching for faster builds
+6. **Production-ready** - Configured for production deployment
+
+The Dockerfile will create a production-optimized container that's much smaller than a development build and follows Docker best practices.

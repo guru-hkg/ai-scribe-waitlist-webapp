@@ -1,0 +1,58 @@
+import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs"
+import { NextResponse, type NextRequest } from "next/server"
+import { getAdminUser } from "@/lib/auth"
+
+// Check if Supabase environment variables are available
+export const isSupabaseConfigured =
+  typeof process.env.NEXT_PUBLIC_SUPABASE_URL === "string" &&
+  process.env.NEXT_PUBLIC_SUPABASE_URL.length > 0 &&
+  typeof process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY === "string" &&
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY.length > 0
+
+export async function updateSession(request: NextRequest) {
+  // Handle admin routes with session authentication
+  if (request.nextUrl.pathname.startsWith("/admin")) {
+    // Allow access to login page
+    if (request.nextUrl.pathname === "/admin/login") {
+      return NextResponse.next()
+    }
+
+    try {
+      const admin = await getAdminUser()
+      if (!admin) {
+        return NextResponse.redirect(new URL("/admin/login", request.url))
+      }
+      return NextResponse.next()
+    } catch (error) {
+      return NextResponse.redirect(new URL("/admin/login", request.url))
+    }
+  }
+
+  // If Supabase is not configured, just continue without auth for other routes
+  if (!isSupabaseConfigured) {
+    return NextResponse.next({
+      request,
+    })
+  }
+
+  const res = NextResponse.next()
+
+  // Create a Supabase client configured to use cookies
+  const supabase = createMiddlewareClient({ req: request, res })
+
+  // Check if this is an auth callback
+  const requestUrl = new URL(request.url)
+  const code = requestUrl.searchParams.get("code")
+
+  if (code) {
+    // Exchange the code for a session
+    await supabase.auth.exchangeCodeForSession(code)
+    // Redirect to home page after successful auth
+    return NextResponse.redirect(new URL("/", request.url))
+  }
+
+  // Refresh session if expired - required for Server Components
+  await supabase.auth.getSession()
+
+  return res
+}
